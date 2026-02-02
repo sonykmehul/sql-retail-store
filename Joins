@@ -1,0 +1,33 @@
+-- 1. Calculate total revenue from delivered orders (revenue = (unit_price * quantity) * (1 - discount_applied)).
+
+select sum((p.unit_price *  oi.quantity) * (1-oi.discount_applied)) as total_revenue
+from products p
+inner join order_items oi
+on p.product_id = oi.product_id
+inner join orders o
+on o.order_id = oi.order_id
+where o.shipping_status = 'Delivered'
+
+------------------------------------------------------------
+
+-- 2.  Find all customers who have never placed an order.
+
+select customer_id 
+from 
+customers where customer_id not in 
+(select customer_id 
+from orders
+where shipping_status = 'Delivered')
+
+------------------------------------------------------------
+
+-- 3. List top 5 best-selling products (excluding discontinued items).
+
+select product_id, sum(quantity * 1-discount_applied) as total_rev
+from order_items
+group by product_id
+order by total_rev desc
+limit 5
+
+------------------------------------------------------------
+
