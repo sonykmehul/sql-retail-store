@@ -1,0 +1,43 @@
+-- 1. Find customers who placed their first order within 7 days of signing up.
+
+WITH first_order AS (
+  SELECT o.customer_id,
+           MIN(o.order_date) AS first_order_date
+  FROM orders o
+  GROUP BY o.customer_id
+)
+SELECT c.customer_id,
+       c.first_name,
+       c.last_name,
+       c.email,
+       c.signup_date,
+       fo.first_order_date,
+       fo.first_order_date - c.signup_date AS days_between
+FROM first_order fo
+JOIN customers c USING (customer_id)
+WHERE fo.first_order_date - c.signup_date <= 7
+ORDER BY days_between;
+
+------------------------------------------------------------
+
+-- 2.  Find customers who spent more than the average total spending of all customers.
+
+WITH cust_spend AS (
+  SELECT o.customer_id,
+         ROUND( SUM( (p.unit_price * oi.quantity) * (1 - oi.discount_applied) ), 2) AS total_spent
+  FROM orders o
+  JOIN order_items oi ON o.order_id = oi.order_id
+  JOIN products p ON oi.product_id = p.product_id
+  GROUP BY o.customer_id
+),
+avg_spend AS (SELECT AVG(total_spent) AS avg_total FROM cust_spend)
+SELECT c.customer_id,
+       c.first_name,
+       c.last_name,
+       cs.total_spent,
+       a.avg_total
+FROM cust_spend cs
+JOIN customers c USING (customer_id)
+CROSS JOIN avg_spend a
+WHERE cs.total_spent > a.avg_total
+ORDER BY cs.total_spent DESC;
