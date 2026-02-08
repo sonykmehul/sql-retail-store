@@ -1,0 +1,78 @@
+-- 1. Find orders placed on weekends that were delivered within 3 business days.
+
+WITH weekend_orders AS (
+  SELECT o.order_id,
+         o.order_date,
+         o.shipping_status,
+         -- Find the *earliest* delivery date for this order (assume one row per order in orders table)
+         MIN(o.order_date) + INTERVAL '1 day' * generate_series(0, 14) AS possible_delivery
+  FROM orders o
+  WHERE EXTRACT(ISODOW FROM o.order_date) IN (6,7)          -- 6=Sat,7=Sun
+    AND o.shipping_status = 'Delivered'
+  GROUP BY o.order_id, o.order_date, o.shipping_status
+),
+delivery_within_3 AS (
+  SELECT wo.order_id,
+           wo.order_date,
+           MIN( possible_delivery ) AS actual_delivery   -- earliest possible that is a business day
+  FROM weekend_orders wo
+  JOIN LATERAL (
+        SELECT wo.possible_delivery
+        WHERE EXTRACT(ISODOW FROM wo.possible_delivery) BETWEEN 1 AND 5   -- Mon Fri
+          AND wo.possible_delivery >= wo.order_date + INTERVAL '1 day'   -- at least 1 day after order
+        ORDER BY wo.possible_delivery
+        LIMIT 1
+  ) d(actual_delivery) ON TRUE
+  WHERE actual_delivery - wo.order_date <= 3                -- ≤ 3 business days
+  GROUP BY wo.order_id, wo.order_date
+)
+SELECT o.order_id,
+       o.order_date,
+       o.shipping_status,
+       d.actual_delivery,
+       (d.actual_delivery - o.order_date) AS business_days_taken
+FROM orders o
+JOIN delivery_within_3 d USING (order_id)
+ORDER BY o.order_date;
+
+-- 2. Count active customers per quarter in 2023.
+
+SELECT
+  DATE_TRUNC('quarter', o.order_date) AS quarter,
+  COUNT(DISTINCT o.customer_id) AS active_customers
+FROM orders o
+WHERE o.order_date >= '2023-01-01' AND o.order_date < '2024-01-01'
+  AND o.shipping_status <> 'Cancelled'          -- include Delivered & Shipped
+GROUP BY 1
+ORDER BY 1
+
+-- 3. Find products with monthly sales 3x higher than their average monthly sales.
+
+WITH monthly_prod AS (
+  SELECT p.product_id,
+         p.product_name,
+         DATE_TRUNC('month', o.order_date) AS month,
+         ROUND( SUM( (p.unit_price * oi.quantity) * (1 - oi.discount_applied) ), 2) AS month_rev
+  FROM order_items oi
+  JOIN orders o ON oi.order_id = o.order_id
+  JOIN products p ON oi.product_id = p.product_id
+  WHERE o.order_date >= '2023-01-01' AND o.order_date < '2024-01-01'
+  GROUP BY p.product_id, p.product_name, month
+),
+prod_stats AS (
+  SELECT *,
+         AVG(month_rev) OVER (PARTITION BY product_id) AS avg_month_rev
+  FROM monthly_prod
+)
+SELECT product_id,
+       product_name,
+       month,
+       month_rev,
+       avg_month_rev,
+       ROUND(month_rev / avg_month_rev, 2) AS x_times_average
+FROM prod_stats
+WHERE month_rev >= 3 * avg_month_rev
+ORDER BY product_id, month
+
+
+2
